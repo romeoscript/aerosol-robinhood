@@ -4,12 +4,27 @@ import { PrivyProvider } from "@privy-io/react-auth";
 import { WagmiProvider, createConfig, http } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { robinhoodChain, RPC_URL } from "@/lib/chain";
 
 const queryClient = new QueryClient();
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+
+  // Privy/wagmi are browser-only. Rendering their consumers (e.g. the Navbar's
+  // usePrivy) during the server prerender pass crashes the build ("Cannot read
+  // properties of null (reading 'useContext')"). Gate the app on a client mount:
+  // `mounted` is false on both the server and the first client render, so there
+  // is no hydration mismatch, then it flips to true and renders the real tree.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return null;
+  }
 
   const network = robinhoodChain;
   const rpcUrl = RPC_URL;

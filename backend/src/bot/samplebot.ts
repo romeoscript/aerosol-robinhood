@@ -113,9 +113,10 @@ const redis = new Redis({
     port: parseInt(process.env.REDIS_PORT || '6379'),
     username: process.env.REDIS_USERNAME || '',
     password: process.env.REDIS_PASSWORD || '',
-    tls: {
-        rejectUnauthorized: false
-    }
+    // Railway private networking (redis.railway.internal) is IPv6-only, so
+    // ioredis must resolve AAAA records. family: 0 lets it try both v6 and v4.
+    // The internal Redis is plaintext, so no TLS here (TLS caused connect ETIMEDOUT).
+    family: 0,
 });
 
 const LAST_REPLIED_TWEET_KEY = 'lastRepliedTweetId';

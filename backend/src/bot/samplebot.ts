@@ -804,15 +804,14 @@ async function loginScraperWithCookies(): Promise<Scraper | null> {
   if (!authToken || !ct0) return null;
   try {
     const scraper = new Scraper();
-    // Set on both twitter.com and x.com — depending on which host the library
-    // hits internally, the cookie jar must have a matching domain or it won't
-    // attach the session cookies.
-    const cookieStrings: string[] = [];
-    for (const domain of ['.twitter.com', '.x.com']) {
-      cookieStrings.push(`auth_token=${authToken}; Domain=${domain}; Path=/; Secure; HttpOnly`);
-      cookieStrings.push(`ct0=${ct0}; Domain=${domain}; Path=/; Secure`);
-    }
-    await scraper.setCookies(cookieStrings);
+    // agent-twitter-client@0.0.18 hits twitter.com internally and tough-cookie
+    // rejects any cookie whose Domain isn't in that host (an .x.com cookie throws
+    // "Cookie not in this host's domain" and aborts the whole setCookies call).
+    // So set the session cookies on .twitter.com only.
+    await scraper.setCookies([
+      `auth_token=${authToken}; Domain=.twitter.com; Path=/; Secure; HttpOnly`,
+      `ct0=${ct0}; Domain=.twitter.com; Path=/; Secure`,
+    ]);
 
     // isLoggedIn() in agent-twitter-client@0.0.18 can be a false negative (it
     // hits an endpoint that current Twitter/X may have changed). Don't hard-fail

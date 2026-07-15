@@ -549,13 +549,15 @@ app.post('/api/transactions/complete', async (req, res) => {
     
     // Send confirmation tweet
     try {
-      const scraper = new Scraper();
-      await scraper.login(
-        process.env.MY_USERNAME || '',
-        process.env.PASSWORD || '',
-        process.env.EMAIL || ''
-      );
-      
+      const scraper = (await loginScraperWithCookies()) ?? new Scraper();
+      if (!(await scraper.isLoggedIn())) {
+        await scraper.login(
+          process.env.MY_USERNAME || '',
+          process.env.PASSWORD || '',
+          process.env.EMAIL || ''
+        );
+      }
+
       const explorerUrl = txExplorerUrl(signature);
       const claimUrl = `${process.env.FRONTEND_URL}`;
       await scraper.sendTweet(
@@ -792,12 +794,45 @@ async function isFirstStartup(): Promise<boolean> {
   }
 }
 
+// Cookie auth: copy the `auth_token` and `ct0` cookies from a browser that is
+// logged in as the bot account into TWITTER_AUTH_TOKEN / TWITTER_CT0. This
+// bypasses agent-twitter-client's fragile username/password login flow, which
+// was failing with Twitter error 34 ("that page does not exist").
+async function loginScraperWithCookies(): Promise<Scraper | null> {
+  const authToken = process.env.TWITTER_AUTH_TOKEN;
+  const ct0 = process.env.TWITTER_CT0;
+  if (!authToken || !ct0) return null;
+  try {
+    const scraper = new Scraper();
+    await scraper.setCookies([
+      `auth_token=${authToken}; Domain=.twitter.com; Path=/; Secure; HttpOnly`,
+      `ct0=${ct0}; Domain=.twitter.com; Path=/; Secure`,
+    ]);
+    if (await scraper.isLoggedIn()) {
+      console.log('✅ Twitter cookie auth successful.');
+      return scraper;
+    }
+    console.error('❌ Twitter cookie auth failed: session not valid (auth_token/ct0 expired or incorrect).');
+    return null;
+  } catch (err) {
+    console.error('❌ Twitter cookie auth error:', err);
+    return null;
+  }
+}
+
 async function loginWithRetry(
   maxRetries: number = 3,
   delayBetweenRetries: number = 10000 // 10 seconds
 ): Promise<Scraper | null> {
+  // Prefer cookie auth when configured — far more reliable than password login.
+  const cookieScraper = await loginScraperWithCookies();
+  if (cookieScraper) return cookieScraper;
+  if (process.env.TWITTER_AUTH_TOKEN || process.env.TWITTER_CT0) {
+    console.warn('Cookie auth configured but failed; falling back to username/password login...');
+  }
+
   let retryCount = 0;
-  
+
   while (retryCount < maxRetries) {
     try {
       console.log(`Twitter login attempt ${retryCount + 1}/${maxRetries}...`);
@@ -873,16 +908,28 @@ variables are set correctly.
 // Twitter credentials validation function - test the login without trying to use it
 async function validateTwitterCredentials(): Promise<boolean> {
   console.log('Testing Twitter credentials...');
-  
+
+  // If cookie auth is configured, validate the cookie session instead of the
+  // password flow.
+  if (process.env.TWITTER_AUTH_TOKEN && process.env.TWITTER_CT0) {
+    const cookieScraper = await loginScraperWithCookies();
+    if (cookieScraper) {
+      console.log('✅ Twitter cookie session is valid.');
+      return true;
+    }
+    console.error('❌ Twitter cookie session is invalid (auth_token/ct0 expired or wrong).');
+    return false;
+  }
+
   try {
     const scraper = new Scraper();
-    
+
     await scraper.login(
       process.env.MY_USERNAME || '',
       process.env.PASSWORD || '',
       process.env.EMAIL || ''
     );
-    
+
     console.log('✅ Twitter credentials are valid.');
     return true;
   } catch (error) {

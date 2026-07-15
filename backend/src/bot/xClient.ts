@@ -200,19 +200,25 @@ export class XScraper extends Scraper {
 
     // Join each tweet to its author (the v1 timeline stores tweets and users
     // separately, keyed by id) so downstream formatting can read tweet.user.*.
-    const tweets = Object.values(rawTweets).map((t: any) => {
-      const user = rawUsers[t.user_id_str];
-      return {
-        ...t,
-        user: user
-          ? {
-              id_str: user.id_str,
-              screen_name: user.screen_name,
-              name: user.name,
-            }
-          : undefined,
-      };
-    });
+    // The mentions feed can also include reply-parent / quoted tweets and the
+    // occasional tweet whose author is absent from the users map; drop any we
+    // can't attribute to a sender, since a mention with no resolvable author is
+    // both unusable (we need the sender to build the payment intent) and would
+    // otherwise yield an undefined username downstream.
+    const tweets = Object.values(rawTweets)
+      .map((t: any) => {
+        const user = rawUsers[t.user_id_str];
+        if (!user?.screen_name) return null;
+        return {
+          ...t,
+          user: {
+            id_str: user.id_str,
+            screen_name: user.screen_name,
+            name: user.name,
+          },
+        };
+      })
+      .filter((t): t is any => t !== null);
 
     return { tweets };
   }

@@ -656,8 +656,18 @@ async function main(scraper: Scraper, privyClient: PrivyClient, llm: ChatGroq | 
       isReply: !!tweet.in_reply_to_status_id_str || tweet.isReply || false,
       isRetweet: !!tweet.retweeted_status || tweet.isRetweet || false,
       isPin: tweet.user?.pinned_tweet_ids_str?.includes(tweet.id_str) || tweet.isPin || false,
-      timeParsed: tweet.created_at ? new Date(tweet.created_at).toISOString() : new Date().toISOString(),
-      timestamp: tweet.created_at ? new Date(tweet.created_at).getTime() / 1000 : Date.now() / 1000,
+      // Notifications tweets carry raw `created_at`; search tweets (from the
+      // scraper lib) instead carry parsed `timeParsed`/`timestamp`. Prefer
+      // whichever the source provides so the age-based spam guard below sees a
+      // real post time rather than defaulting to "now" for search results.
+      timeParsed: tweet.created_at
+        ? new Date(tweet.created_at).toISOString()
+        : tweet.timeParsed
+          ? new Date(tweet.timeParsed).toISOString()
+          : new Date().toISOString(),
+      timestamp: tweet.created_at
+        ? new Date(tweet.created_at).getTime() / 1000
+        : tweet.timestamp || Date.now() / 1000,
       html: tweet.html || ''
     }));
 

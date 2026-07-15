@@ -616,14 +616,34 @@ async function main(scraper: Scraper, privyClient: PrivyClient, llm: ChatGroq | 
     }
         
     console.log(`Fetching tweets mentioning @${myUsername}...`);
-    const getTweets = await scraper.fetchSearchTweets(
-      `@${myUsername}`,
-      20,
-      SearchMode.Latest
-    );
-    console.log(`Seen ${getTweets.tweets.length} tweets.`);
+    // Two independent sources, unioned for reliability:
+    //  - the notifications "Mentions" tab (not subject to search indexing), and
+    //  - Latest search (catches anything the notifications tab misses).
+    // Either alone can miss mentions, so we merge and dedupe by tweet id.
+    const [mentionsResult, searchResult] = await Promise.all([
+      scraper.fetchMentions().catch((e: any) => {
+        console.warn('fetchMentions failed (falling back to search only):', e?.message || e);
+        return { tweets: [] as any[] };
+      }),
+      scraper
+        .fetchSearchTweets(`@${myUsername}`, 20, SearchMode.Latest)
+        .catch((e: any) => {
+          console.warn('fetchSearchTweets failed:', e?.message || e);
+          return { tweets: [] as any[] };
+        }),
+    ]);
 
-    const formattedTweets = getTweets.tweets.map((tweet: any): Tweet => ({
+    const rawById = new Map<string, any>();
+    for (const t of [...mentionsResult.tweets, ...searchResult.tweets]) {
+      const id = t.id_str || t.id;
+      if (id) rawById.set(String(id), t);
+    }
+    const rawTweets = Array.from(rawById.values());
+    console.log(
+      `Seen ${rawTweets.length} tweets (mentions: ${mentionsResult.tweets.length}, search: ${searchResult.tweets.length}).`
+    );
+
+    const formattedTweets = rawTweets.map((tweet: any): Tweet => ({
       id: tweet.id_str || tweet.id,
       conversationId: tweet.conversation_id_str || tweet.conversationId,
       mentions: tweet.entities?.user_mentions?.map((m: any) => m.screen_name) || tweet.mentions || [],

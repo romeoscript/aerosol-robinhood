@@ -28,6 +28,13 @@ const BEARER_TOKEN =
 const CREATE_TWEET_URL =
   'https://api.x.com/graphql/Uf3io9zVp1DsYxrmL5FJ7g/CreateTweet';
 
+// Legacy notifications "Mentions" tab endpoint. Unlike search, this returns
+// the authenticated account's mentions directly from X's notification system,
+// so it isn't subject to search-index latency. Returns the classic
+// globalObjects/timeline v1 shape.
+const MENTIONS_URL =
+  'https://x.com/i/api/2/notifications/mentions.json?count=40&tweet_mode=extended&include_ext_alt_text=false&include_entities=true';
+
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36';
 
@@ -150,5 +157,63 @@ export class XScraper extends Scraper {
       );
     }
     return tweetId;
+  }
+
+  /**
+   * Fetches the authenticated account's recent mentions from the notifications
+   * "Mentions" tab. This is independent of X's search index, so it catches
+   * mentions that fetchSearchTweets misses (search indexing lags for new or
+   * low-reputation sender accounts).
+   *
+   * Returns the same `{ tweets }` shape as fetchSearchTweets, with each tweet
+   * carrying id_str / full_text / entities / created_at / a nested `user`, so
+   * the caller can format it identically to a search result.
+   */
+  async fetchMentions(): Promise<{ tweets: any[] }> {
+    const cookies = await this.getCookies();
+    const ct0 = cookies.find((c) => c.key === 'ct0')?.value;
+    if (!ct0) {
+      throw new Error('fetchMentions: no ct0 cookie in session (not logged in?)');
+    }
+    const cookieHeader = cookies.map((c) => `${c.key}=${c.value}`).join('; ');
+
+    const res = await fetch(MENTIONS_URL, {
+      headers: {
+        authorization: `Bearer ${BEARER_TOKEN}`,
+        cookie: cookieHeader,
+        'x-csrf-token': ct0,
+        'user-agent': USER_AGENT,
+        origin: 'https://x.com',
+        referer: 'https://x.com/notifications/mentions',
+        'x-twitter-auth-type': 'OAuth2Session',
+        'x-twitter-active-user': 'yes',
+        'x-twitter-client-language': 'en',
+      },
+    });
+
+    if (!res.ok) {
+      throw new Error(`fetchMentions failed: HTTP ${res.status}`);
+    }
+    const body = await res.json().catch(() => null);
+    const rawTweets = body?.globalObjects?.tweets ?? {};
+    const rawUsers = body?.globalObjects?.users ?? {};
+
+    // Join each tweet to its author (the v1 timeline stores tweets and users
+    // separately, keyed by id) so downstream formatting can read tweet.user.*.
+    const tweets = Object.values(rawTweets).map((t: any) => {
+      const user = rawUsers[t.user_id_str];
+      return {
+        ...t,
+        user: user
+          ? {
+              id_str: user.id_str,
+              screen_name: user.screen_name,
+              name: user.name,
+            }
+          : undefined,
+      };
+    });
+
+    return { tweets };
   }
 }

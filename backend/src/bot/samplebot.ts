@@ -650,12 +650,14 @@ app.post('/api/transactions/complete', async (req, res) => {
         );
       }
 
-      const explorerUrl = txExplorerUrl(signature);
-      const claimUrl = `${process.env.FRONTEND_URL}`;
+      // Link-free confirmation. X throttles/hides tweets containing URLs from
+      // new accounts, which suppressed the recipient's mention notification.
+      // Keep the @recipient mention prominent so they actually get pinged, and
+      // point them to EasyPay via the bio instead of an inline link.
       await scraper.sendTweet(
-        `@${transaction.sender} You've successfully sent ${transaction.amount} ${NATIVE_SYMBOL} to @${transaction.recipient}. ` +
-        `Tx: ${explorerUrl} \n\n` +
-        `@${transaction.recipient} You've received ${transaction.amount} ${NATIVE_SYMBOL}! Visit ${claimUrl} to claim your ${NATIVE_SYMBOL}.`,
+        `@${transaction.recipient} you've been sent ${transaction.amount} ${NATIVE_SYMBOL} by @${transaction.sender}! ` +
+        `Log into EasyPay with X (link in bio) to access it.\n\n` +
+        `@${transaction.sender} your ${transaction.amount} ${NATIVE_SYMBOL} to @${transaction.recipient} is on its way ✅`,
         transaction.tweet_id
       );
     } catch (twitterError) {

@@ -3,6 +3,7 @@
 import { UserInfoCard } from "@/components/profile/user-info-card";
 import { BalanceCard } from "@/components/profile/balance-card";
 import { WalletTransactionHistory } from "@/components/profile/wallet-transaction-history";
+import { PendingRequests } from "@/components/profile/pending-requests";
 import { usePrivy } from "@privy-io/react-auth";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -259,6 +260,11 @@ export default function ProfilePage() {
                     profilePictureUrl={user?.twitter?.profilePictureUrl ?? undefined}
                   />
                 </div>
+
+                {/* Pending payment requests the user can approve in-app */}
+                {user?.twitter?.username && (
+                  <PendingRequests twitterUsername={user.twitter.username} />
+                )}
 
                 {/* Transaction History */}
                 {user?.wallet?.address && (

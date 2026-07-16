@@ -412,14 +412,15 @@ async function replyToTweet(
       return;
     }
       
-    // Create an approval link
-    const approvalUrl = `${process.env.FRONTEND_URL}/approve/${transactionId}`;
-      
-    // Reply with the approval link
+    // Reply WITHOUT a link. X throttles/hides replies containing URLs from
+    // new accounts, which buried the approval link. Instead, direct the sender
+    // to approve inside EasyPay (link in the bot's bio), where the request now
+    // shows up under "Pending Requests". The transaction intent is already
+    // stored above, so the app can surface it.
     await scraper.sendTweet(
-      `@${sender} Ready to send ${amount} ${NATIVE_SYMBOL} to @${recipientUsername}. ` +
-      `Click here to approve this transaction: ${approvalUrl} ` +
-      `(Link expires in 24 hours)`,
+      `Ready to send ${amount} ${NATIVE_SYMBOL} to @${recipientUsername}. ` +
+      `Approve it in EasyPay — open the app and check your Pending Requests (link in bio). ` +
+      `Expires in 24h.`,
       tweet.id
     );
 
@@ -435,6 +436,56 @@ async function replyToTweet(
 }
 
 // Add the transaction API endpoints inline
+
+// List a user's pending (non-expired) requests, so the sender can approve them
+// from inside the app instead of clicking a link in the bot's reply (X throttles
+// links from new accounts). Query: /api/transactions?sender=<handle>&status=pending
+app.get('/api/transactions', async (req, res) => {
+  try {
+    const sender = (req.query.sender as string | undefined)?.trim();
+    const status = ((req.query.status as string | undefined) || 'pending').trim();
+    if (!sender) {
+      res.status(400).json({ success: false, error: 'sender query param is required' });
+      return;
+    }
+
+    const { supabase } = await connectToSupabase();
+
+    const { data, error } = await supabase
+      .from('transactions')
+      .select('*')
+      .ilike('sender', sender) // Twitter handles are case-insensitive
+      .eq('status', status)
+      .gt('expires_at', new Date().toISOString())
+      .order('expires_at', { ascending: false });
+
+    if (error) {
+      console.error('Supabase error listing transactions:', error);
+      res.status(500).json({ success: false, error: error.message });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      transactions: (data || []).map((t: any) => ({
+        id: t.id,
+        sender: t.sender,
+        recipient: t.recipient,
+        recipientAddress: t.recipient_address,
+        amount: t.amount,
+        status: t.status,
+        expiresAt: t.expires_at,
+      })),
+    });
+  } catch (error) {
+    console.error('Error listing transactions:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'An unexpected error occurred',
+    });
+  }
+});
+
 app.get('/api/transactions/:id', async (req, res) => {
   try {
     const { id } = req.params;

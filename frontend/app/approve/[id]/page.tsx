@@ -9,14 +9,13 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect } from "react";
-import { usePrivy } from "@privy-io/react-auth";
-import { useWallets } from "@privy-io/react-auth";
+import { usePrivy, useWallets, useSendTransaction } from "@privy-io/react-auth";
 import axios from "axios";
 import { toast } from "sonner";
 import { useParams, useRouter } from "next/navigation";
 import { ethers } from "ethers";
-import { usePublicClient, useWalletClient } from "wagmi";
-import { txExplorerUrl } from "@/lib/chain";
+import { usePublicClient } from "wagmi";
+import { txExplorerUrl, robinhoodChain } from "@/lib/chain";
 
 export default function TransactionApprovalPage() {
   const params = useParams();
@@ -30,7 +29,7 @@ export default function TransactionApprovalPage() {
   const [walletBalance, setWalletBalance] = useState<string | null>(null);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const publicClient = usePublicClient();
-  const { data: walletClient } = useWalletClient();
+  const { sendTransaction } = useSendTransaction();
   const [embeddedWallet, setEmbeddedWallet] = useState<any>(null);
   
   const [transaction, setTransaction] = useState<{
@@ -105,7 +104,7 @@ export default function TransactionApprovalPage() {
   }, [publicClient, embeddedWallet, user?.wallet?.address]);
 
   const handleApprove = async () => {
-    if (!embeddedWallet || !user?.wallet?.address || !transaction || !walletClient) {
+    if (!embeddedWallet || !user?.wallet?.address || !transaction) {
       toast.error("Please connect your wallet first");
       return;
     }
@@ -137,28 +136,22 @@ export default function TransactionApprovalPage() {
       const amountInWei = ethers.parseEther(transaction.amount.toString());
       console.log('Amount in wei:', amountInWei.toString());
 
-      console.log('Sending transaction with wallet client...');
-      
-      // Send the transaction using wagmi wallet client
-      hash = await walletClient.sendTransaction({
-        to: transaction.recipientAddress as `0x${string}`,
-        value: amountInWei,
-        chain: walletClient.chain,
-        account: user.wallet.address as `0x${string}`,
+      console.log('Sending transaction with Privy embedded wallet...');
+
+      // Sign via the Privy embedded wallet directly. The app wraps plain wagmi
+      // (no Privy connector), so wagmi's useWalletClient() is always null for
+      // the embedded wallet — which is why "connect your wallet first" fired.
+      // useSendTransaction() signs through Privy and returns a mined receipt.
+      const receipt = await sendTransaction({
+        to: transaction.recipientAddress,
+        value: '0x' + amountInWei.toString(16),
+        chainId: robinhoodChain.id,
       });
-      
+
+      hash = receipt.transactionHash;
       console.log('Transaction sent, hash:', hash);
 
-      // Wait for transaction confirmation
-      console.log('Waiting for transaction confirmation...');
-      const receipt = await publicClient!.waitForTransactionReceipt({
-        hash: hash as `0x${string}`,
-        confirmations: 1,
-      });
-
-      console.log('Transaction confirmation receipt:', receipt);
-
-      if (receipt.status !== 'success') {
+      if (receipt.status === 0) {
         throw new Error('Transaction failed');
       }
 

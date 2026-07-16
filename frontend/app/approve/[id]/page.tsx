@@ -43,6 +43,11 @@ export default function TransactionApprovalPage() {
   
   const [error, setError] = useState<string | null>(null);
 
+  // Gas reserve held back for fees. Robinhood Chain fees are ~0 (observed
+  // < 0.000001 ETH), so a large reserve like 0.001 wrongly blocks small
+  // transfers when the wallet balance is itself small.
+  const GAS_RESERVE_ETH = 0.0002;
+
   // Find the Privy embedded wallet when wallets are loaded
   useEffect(() => {
     const privyWallet = wallets.find(wallet => wallet.walletClientType === 'privy');
@@ -117,7 +122,7 @@ export default function TransactionApprovalPage() {
     }
 
     // Check if amount exceeds available balance
-    if (walletBalance !== null && transaction.amount > parseFloat(walletBalance) - 0.001) {
+    if (walletBalance !== null && transaction.amount > parseFloat(walletBalance) - GAS_RESERVE_ETH) {
       toast.error("Insufficient balance for transaction (including fees)");
       return;
     }
@@ -322,7 +327,7 @@ export default function TransactionApprovalPage() {
                     <p className="font-medium">{isLoadingBalance ? "Loading..." : `${parseFloat(walletBalance).toFixed(4)} ETH`}</p>
                   </div>
                   
-                  {parseFloat(walletBalance) < transaction.amount + 0.001 && (
+                  {parseFloat(walletBalance) < transaction.amount + GAS_RESERVE_ETH && (
                     <p className="text-red-500 text-sm mt-2">
                       Insufficient balance for this transaction (including fees)
                     </p>
@@ -336,7 +341,7 @@ export default function TransactionApprovalPage() {
                 disabled={
                   isLoading || 
                   isLoadingBalance || 
-                  (walletBalance !== null && parseFloat(walletBalance) < transaction.amount + 0.001) ||
+                  (walletBalance !== null && parseFloat(walletBalance) < transaction.amount + GAS_RESERVE_ETH) ||
                   transaction.status !== 'pending'
                 }
               >
